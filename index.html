@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="行きたいリスト">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>行きたいリスト</title>
+<style>
+:root{--bg:#fff7f3;--card:#fff;--text:#2d2326;--sub:#8a7a7e;--accent:#e8587a;--accent2:#2e9e78;--line:#f0dfe0}
+@media (prefers-color-scheme:dark){:root{--bg:#1c1618;--card:#2a2124;--text:#f5eaec;--sub:#b3a0a5;--accent:#ff7a99;--accent2:#4cc79d;--line:#3b2f33}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;min-height:100vh;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+main{max-width:480px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:22px;margin:4px 0 14px}
+.note{font-size:12px;color:var(--sub);margin:-8px 0 12px}
+.add,.box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px;display:grid;gap:8px}
+input,textarea{width:100%;font:inherit;font-size:16px;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text)}
+button,label.pick{font:inherit;cursor:pointer;border:0;border-radius:10px}
+.primary{background:var(--accent);color:#fff;padding:12px;font-weight:700}
+.row{display:flex;gap:8px}
+.paste{background:var(--line);color:var(--text);padding:0 14px;white-space:nowrap;font-size:14px}
+.pick{display:flex;align-items:center;background:var(--line);color:var(--text);padding:10px 14px;font-size:14px}
+.prev{width:56px;height:56px;border-radius:10px;object-fit:cover}
+.tabs{display:flex;gap:8px;margin:18px 0 10px}
+.tab{flex:1;padding:10px;background:var(--card);color:var(--sub);border:1px solid var(--line)}
+.tab.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.item{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:8px;display:flex;gap:10px;align-items:center}
+.thumb{width:68px;height:68px;border-radius:12px;object-fit:cover;flex:none;background:var(--line);display:flex;align-items:center;justify-content:center;font-size:26px;cursor:pointer}
+.t{flex:1;min-width:0}
+.name{font-weight:700;font-size:17px;word-break:break-word}
+.memo{font-size:13px;color:var(--sub);margin-top:2px;word-break:break-word}
+.link{display:inline-block;margin-top:4px;font-size:12px;color:var(--accent);text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:2px 10px}
+.acts{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+.go{background:var(--accent2);color:#fff;padding:8px 10px;font-size:13px;white-space:nowrap}
+.back{background:var(--line);color:var(--text);padding:8px 10px;font-size:13px;white-space:nowrap}
+.del{background:none;color:var(--sub);font-size:18px;padding:4px 8px}
+.done .name{text-decoration:line-through;opacity:.7}
+.empty{text-align:center;color:var(--sub);padding:28px 0;font-size:14px}
+.small{background:none;color:var(--sub);font-size:12px;text-decoration:underline;padding:8px}
+.err{color:var(--accent);font-size:13px}
+p{line-height:1.6;font-size:14px;margin:0}
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+(function(){
+// ↓ 設定をファイルに直接書く場合はここに貼ります。空のままなら、最初の起動時にアプリ内で貼り付けます。
+var FIREBASE_CONFIG=null;
+
+var $=function(i){return document.getElementById(i)};
+var app=document.getElementById("app");
+var K_CFG="ikitai-fb-config",K_ROOM="ikitai-room";
+var cfg=FIREBASE_CONFIG,db=null,col=null,unsub=null;
+var items=[],tab="want",pendingPhoto="",editing=null;
+
+function ls(k,v){try{if(v===undefined)return localStorage.getItem(k);if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v)}catch(e){}return null}
+function el(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!==undefined)e.textContent=txt;return e}
+function clear(){app.textContent="";if(unsub){unsub();unsub=null}}
+
+/* ---------- 画面1: Firebase設定 ---------- */
+function parseConfig(s){
+var o={},re=/(\w+)\s*:\s*["']([^"']*)["']/g,m;
+while((m=re.exec(s)))o[m[1]]=m[2];
+return(o.apiKey&&o.projectId)?o:null;
+}
+function screenConfig(msg){
+clear();
+app.appendChild(el("h1","","📍 はじめの設定"));
+var b=el("div","box");
+b.appendChild(el("p","","Firebaseで作った「firebaseConfig」の中身を、下にそのまま貼り付けてください（手順はSETUP.mdを見てください）。"));
+var ta=el("textarea");ta.rows=8;ta.placeholder='const firebaseConfig = {\n  apiKey: "...",\n  projectId: "...",\n  ...\n};';b.appendChild(ta);
+var er=el("div","err");if(msg)er.textContent=msg;b.appendChild(er);
+var bt=el("button","primary","保存して次へ");
+bt.onclick=function(){var c=parseConfig(ta.value);if(!c){er.textContent="設定を読み取れませんでした。apiKeyとprojectIdが入っているか確認してください。";return}ls(K_CFG,JSON.stringify(c));cfg=c;start()};
+b.appendChild(bt);app.appendChild(b);
+}
+
+/* ---------- 画面2: 合言葉 ---------- */
+function screenRoom(){
+clear();
+app.appendChild(el("h1","","📍 行きたいリスト"));
+var b=el("div","box");
+b.appendChild(el("p","","二人で同じ「合言葉」を入れると、同じリストが共有されます。他の人に推測されないよう、8文字以上の長めの言葉にしてください。"));
+var i=el("input");i.placeholder="合言葉（例：sakura-pochi-2026）";i.autocapitalize="none";b.appendChild(i);
+var er=el("div","err");b.appendChild(er);
+var bt=el("button","primary","リストを開く");
+bt.onclick=function(){var r=i.value.trim().toLowerCase().replace(/[\/\s]+/g,"-");if(r.length<8){er.textContent="8文字以上で入力してください。";return}ls(K_ROOM,r);start()};
+b.appendChild(bt);app.appendChild(b);
+if(cfg){var s=el("button","small","Firebaseの設定をやり直す");s.onclick=function(){ls(K_CFG,null);cfg=FIREBASE_CONFIG;start()};app.appendChild(s)}
+}
+
+/* ---------- 画面3: リスト ---------- */
+function urlOf(s){var m=(s||"").match(/https?:\/\/[^\s]+/);return m?m[0]:""}
+function siteOf(u){var p=u.replace(/^https?:\/\/(www\.)?/,"");var map=[["instagram.com","Instagram"],["tiktok.com","TikTok"],["x.com","X"],["twitter.com","X"],["youtube.com","YouTube"],["youtu.be","YouTube"],["threads.net","Threads"],["facebook.com","Facebook"],["maps.app.goo.gl","Googleマップ"],["google.com/maps","Googleマップ"],["goo.gl/maps","Googleマップ"],["tabelog.com","食べログ"],["hotpepper.jp","ホットペッパー"],["gnavi.co.jp","ぐるなび"]];for(var i=0;i<map.length;i++){if(p.indexOf(map[i][0])===0||p.indexOf("/"+map[i][0])>-1)return map[i][1]}return p.split(/[\/?#]/)[0]}
+function guessName(u){var m=u.match(/\/maps\/place\/([^\/@?]+)/);if(!m)return"";try{return decodeURIComponent(m[1].replace(/\+/g," "))}catch(e){return""}}
+function shrink(file,cb){var fr=new FileReader();fr.onload=function(){var im=new Image();im.onload=function(){var s=Math.min(1,400/Math.max(im.width,im.height));var c=document.createElement("canvas");c.width=Math.max(1,Math.round(im.width*s));c.height=Math.max(1,Math.round(im.height*s));c.getContext("2d").drawImage(im,0,0,c.width,c.height);cb(c.toDataURL("image/jpeg",0.7))};im.onerror=function(){cb("")};im.src=fr.result};fr.onerror=function(){cb("")};fr.readAsDataURL(file)}
+
+function screenList(){
+clear();
+var room=ls(K_ROOM);
+app.appendChild(el("h1","","📍 行きたいリスト"));
+var note=el("p","note","読み込み中…");note.id="note";app.appendChild(note);
+
+var add=el("div","add");
+var r1=el("div","row");
+var link=el("input");link.id="link";link.placeholder="リンクを貼る（Instagram・TikTok・Googleマップなど）";link.inputMode="url";
+var pb=el("button","paste","貼り付け");r1.appendChild(link);r1.appendChild(pb);add.appendChild(r1);
+var name=el("input");name.id="name";name.placeholder="場所の名前（空欄でもOK）";name.maxLength=80;add.appendChild(name);
+var r2=el("div","row");
+var pk=el("label","pick","📷 写真を選ぶ");pk.setAttribute("for","photo");
+var prev=el("img","prev");prev.hidden=true;r2.appendChild(pk);r2.appendChild(prev);add.appendChild(r2);
+var photo=el("input");photo.id="photo";photo.type="file";photo.accept="image/*";photo.hidden=true;add.appendChild(photo);
+var photo2=el("input");photo2.type="file";photo2.accept="image/*";photo2.hidden=true;add.appendChild(photo2);
+var memo=el("input");memo.placeholder="メモ（任意）";memo.maxLength=200;add.appendChild(memo);
+var ab=el("button","primary","追加する");add.appendChild(ab);
+app.appendChild(add);
+
+var tabs=el("div","tabs");
+var tw=el("button","tab on","行きたい"),td=el("button","tab","行った");
+tabs.appendChild(tw);tabs.appendChild(td);app.appendChild(tabs);
+var list=el("div");app.appendChild(list);
+var foot=el("button","small","合言葉を変える");foot.onclick=function(){ls(K_ROOM,null);screenRoom()};app.appendChild(foot);
+
+function render(){
+list.textContent="";
+var show=items.filter(function(x){return(x.done?"done":"want")===tab}).sort(function(a,b){return(b.at||0)-(a.at||0)});
+if(!show.length){list.appendChild(el("div","empty",tab==="want"?"まだ何もありません。行きたいところを追加しよう":"まだ「行った」はありません"));return}
+show.forEach(function(x){
+var d=el("div","item"+(x.done?" done":""));
+var ph;if(x.photo){ph=el("img","thumb");ph.src=x.photo;ph.alt=x.name}else{ph=el("div","thumb","📍")}
+ph.onclick=function(){editing=x;photo2.click()};
+var t=el("div","t");t.appendChild(el("div","name",x.name));
+if(x.memo)t.appendChild(el("div","memo",x.memo));
+if(x.link&&/^https?:\/\//.test(x.link)){var a=el("a","link","🔗 "+siteOf(x.link));a.href=x.link;a.target="_blank";a.rel="noopener noreferrer";t.appendChild(a)}
+var b=el("button",x.done?"back":"go",x.done?"行きたいに戻す":"行った！");
+b.onclick=function(){col.doc(x.id).update({done:!x.done,at:Date.now()}).catch(fail)};
+var r=el("button","del","×");r.setAttribute("aria-label","削除");
+r.onclick=function(){if(confirm("「"+x.name+"」を削除しますか？"))col.doc(x.id).delete().catch(fail)};
+var ac=el("div","acts");ac.appendChild(b);ac.appendChild(r);
+d.appendChild(ph);d.appendChild(t);d.appendChild(ac);list.appendChild(d)});
+}
+function fail(e){note.textContent="保存できませんでした："+(e&&e.message?e.message:"通信を確認してください")}
+function setTab(t){tab=t;tw.classList.toggle("on",t==="want");td.classList.toggle("on",t==="done");render()}
+tw.onclick=function(){setTab("want")};td.onclick=function(){setTab("done")};
+
+function doAdd(){
+var lk=urlOf(link.value),nm=name.value.trim();
+if(!nm&&lk)nm=guessName(lk)||(siteOf(lk)?siteOf(lk)+"で見つけた場所":"リンクから保存");
+if(!nm)return;
+var x={name:nm,memo:memo.value.trim(),link:lk,photo:pendingPhoto,done:false,at:Date.now()};
+link.value="";name.value="";memo.value="";pendingPhoto="";prev.hidden=true;prev.removeAttribute("src");photo.value="";
+col.add(x).catch(fail);
+}
+ab.onclick=doAdd;
+name.addEventListener("keydown",function(e){if(e.key==="Enter")doAdd()});
+name.addEventListener("input",function(){var u=urlOf(name.value);if(u){link.value=u;name.value=name.value.replace(u,"").trim()}});
+link.addEventListener("input",function(){var u=urlOf(link.value);if(u&&!name.value.trim()){var g=guessName(u);if(g)name.value=g}});
+pb.onclick=function(){try{navigator.clipboard.readText().then(function(t){var u=urlOf(t);link.value=u||t.trim();if(u&&!name.value.trim()){var g=guessName(u);if(g)name.value=g}}).catch(function(){link.focus()})}catch(e){link.focus()}};
+photo.onchange=function(){var f=this.files&&this.files[0];if(!f)return;shrink(f,function(d){if(!d)return;pendingPhoto=d;prev.src=d;prev.hidden=false})};
+photo2.onchange=function(){var f=this.files&&this.files[0];this.value="";var x=editing;if(!f||!x)return;shrink(f,function(d){if(!d)return;col.doc(x.id).update({photo:d}).catch(fail)})};
+
+try{
+col=db.collection("lists").doc(room).collection("places");
+unsub=col.onSnapshot(function(snap){
+items=snap.docs.map(function(d){var v=d.data()||{};v.id=d.id;return v});
+note.textContent="合言葉「"+room+"」のリストを共有中";
+render();
+},function(e){note.textContent="読み込めませんでした。Firestoreのルール設定（SETUP.md）を確認してください。";render()});
+}catch(e){note.textContent="接続に失敗しました："+e.message}
+}
+
+/* ---------- 起動 ---------- */
+function start(){
+if(!cfg){var s=ls(K_CFG);if(s){try{cfg=JSON.parse(s)}catch(e){cfg=null}}}
+if(!cfg){screenConfig();return}
+try{if(!db){if(!firebase.apps.length)firebase.initializeApp(cfg);db=firebase.firestore()}}
+catch(e){ls(K_CFG,null);cfg=FIREBASE_CONFIG;screenConfig("接続に失敗しました。設定を貼り直してください。");return}
+if(!ls(K_ROOM)){screenRoom();return}
+screenList();
+}
+start();
+})();
+</script>
+</body>
+</html>

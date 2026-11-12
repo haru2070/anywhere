@@ -112,7 +112,7 @@ var add=el("div","add");
 var r1=el("div","row");
 var link=el("input");link.id="link";link.placeholder="リンクを貼る（Instagram・TikTok・Googleマップなど）";link.inputMode="url";
 var pb=el("button","paste","貼り付け");r1.appendChild(link);r1.appendChild(pb);add.appendChild(r1);
-var name=el("input");name.id="name";name.placeholder="場所の名前（空欄でもOK）";name.maxLength=80;add.appendChild(name);
+var name=el("input");name.id="name";name.placeholder="場所の名前（必須）";name.maxLength=80;add.appendChild(name);
 var r3=el("div","row");var addr=el("input");addr.placeholder="住所（任意）";addr.maxLength=200;
 var sb=el("button","paste","住所を探す");r3.appendChild(addr);r3.appendChild(sb);add.appendChild(r3);
 var cands=el("div");add.appendChild(cands);
@@ -177,13 +177,15 @@ tw.onclick=function(){setTab("want")};td.onclick=function(){setTab("done")};
 
 function doAdd(){
 var lk=urlOf(link.value),nm=name.value.trim();
-if(!nm&&lk)nm=guessName(lk)||(siteOf(lk)?siteOf(lk)+"で見つけた場所":"リンクから保存");
-if(!nm)return;
+if(!nm&&lk)nm=guessName(lk);
+if(!nm){note.textContent="場所の名前を入れてください";name.style.borderColor="var(--accent)";name.focus();return}
+name.style.borderColor="";
 var x={name:nm,memo:memo.value.trim(),link:lk,address:addr.value.trim(),photo:pendingPhoto,done:false,at:Date.now()};
 link.value="";name.value="";memo.value="";addr.value="";cands.textContent="";pendingPhoto="";prev.hidden=true;prev.removeAttribute("src");photo.value="";
 col.add(x).catch(fail);
 }
 ab.onclick=doAdd;
+name.addEventListener("input",function(){name.style.borderColor=""});
 name.addEventListener("keydown",function(e){if(e.key==="Enter")doAdd()});
 name.addEventListener("input",function(){var u=urlOf(name.value);if(u){link.value=u;name.value=name.value.replace(u,"").trim()}});
 link.addEventListener("input",function(){var u=urlOf(link.value);if(u&&!name.value.trim()){var g=guessName(u);if(g)name.value=g}});

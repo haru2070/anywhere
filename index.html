@@ -150,7 +150,17 @@ var d=el("div","item"+(x.done?" done":""));
 var ph;if(x.photo){ph=el("img","thumb");ph.src=x.photo;ph.alt=x.name}else{ph=el("div","thumb","📍")}
 ph.onclick=function(){editing=x;photo2.click()};
 var t=el("div","t");t.appendChild(el("div","name",x.name));
-if(x.memo)t.appendChild(el("div","memo",x.memo));
+var mm=el("div","memo",x.memo||"✏️ メモを追加");mm.style.cursor="pointer";if(!x.memo)mm.style.opacity=".6";
+mm.onclick=function(){
+var inp=el("input");inp.value=x.memo||"";inp.maxLength=200;inp.placeholder="メモ";
+var sv=el("button","go","保存");sv.style.marginTop="6px";
+var cn=el("button","back","やめる");cn.style.cssText="margin:6px 0 0 6px";
+var bx=el("div");bx.appendChild(inp);bx.appendChild(sv);bx.appendChild(cn);
+t.replaceChild(bx,mm);inp.focus();
+function save(){col.doc(x.id).update({memo:inp.value.trim()}).catch(fail)}
+sv.onclick=save;cn.onclick=render;
+inp.addEventListener("keydown",function(e){if(e.key==="Enter")save()})};
+t.appendChild(mm);
 if(x.address)t.appendChild(el("div","memo","📍 "+x.address));
 var mp=el("a","link","🗺 地図で見る");mp.href="https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(x.address||x.name);mp.target="_blank";mp.rel="noopener noreferrer";t.appendChild(mp);
 if(x.link&&/^https?:\/\//.test(x.link)){var a=el("a","link","🔗 "+siteOf(x.link));a.href=x.link;a.target="_blank";a.rel="noopener noreferrer";t.appendChild(a)}

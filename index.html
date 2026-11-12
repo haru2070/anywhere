@@ -58,7 +58,7 @@ var $=function(i){return document.getElementById(i)};
 var app=document.getElementById("app");
 var K_CFG="ikitai-fb-config",K_ROOM="ikitai-room";
 var cfg=FIREBASE_CONFIG,db=null,col=null,unsub=null;
-var items=[],tab="want",pendingPhoto="",editing=null;
+var items=[],tab="want",pendingPhoto="",editing=null,openId=null;
 
 function ls(k,v){try{if(v===undefined)return localStorage.getItem(k);if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v)}catch(e){}return null}
 function el(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!==undefined)e.textContent=txt;return e}
@@ -141,16 +141,48 @@ tabs.appendChild(tw);tabs.appendChild(td);app.appendChild(tabs);
 var list=el("div");app.appendChild(list);
 var foot=el("button","small","合言葉を変える");foot.onclick=function(){ls(K_ROOM,null);screenRoom()};app.appendChild(foot);
 
+var ov=el("div");ov.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;background:var(--bg);overflow:auto;z-index:10;display:none;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)";app.appendChild(ov);
+function field(label,node){var f=el("div");f.style.marginTop="16px";var l=el("div","note",label);l.style.margin="0 0 4px";f.appendChild(l);node.style.wordBreak="break-word";f.appendChild(node);return f}
+function drawDetail(){
+ov.textContent="";
+var x=null;for(var i=0;i<items.length;i++){if(items[i].id===openId)x=items[i]}
+if(!x){ov.style.display="none";return}
+ov.style.display="block";
+var w=el("div");w.style.cssText="max-width:480px;margin:0 auto;padding:16px 16px 40px";
+var bk=el("button","back","← もどる");bk.onclick=function(){openId=null;drawDetail()};w.appendChild(bk);
+var base="width:100%;aspect-ratio:4/3;border-radius:16px;margin-top:12px;border:1px solid var(--line);";var im;
+if(x.photo){im=el("img");im.src=x.photo;im.alt=x.name;im.style.cssText=base+"object-fit:cover;display:block"}
+else{im=el("div","","📍");im.style.cssText=base+"display:flex;align-items:center;justify-content:center;font-size:56px;background:var(--line)"}
+w.appendChild(im);
+var pc=el("button","paste",x.photo?"写真を変更":"写真を設定");pc.style.cssText="padding:8px 12px;margin-top:8px";pc.onclick=function(){editing=x;photo2.click()};w.appendChild(pc);
+var nm=el("div","",x.name);nm.style.cssText="font-size:24px;font-weight:700;margin-top:16px;word-break:break-word";w.appendChild(nm);
+w.appendChild(field("住所",el("div","",x.address||"（未入力）")));
+var mf=field("メモ",el("div","",x.memo||"（未入力）"));
+var me=el("button","paste","編集");me.style.cssText="padding:6px 12px;margin-top:6px;font-size:13px";
+me.onclick=function(){
+var inp=el("input");inp.value=x.memo||"";inp.maxLength=200;
+var sv=el("button","go","保存");sv.style.marginTop="6px";
+var cn=el("button","back","やめる");cn.style.cssText="margin:6px 0 0 6px";cn.onclick=function(){drawDetail()};
+function save(){col.doc(x.id).update({memo:inp.value.trim()}).catch(fail)}
+sv.onclick=save;inp.addEventListener("keydown",function(e){if(e.key==="Enter")save()});
+mf.textContent="";var l=el("div","note","メモ");l.style.margin="0 0 4px";mf.appendChild(l);mf.appendChild(inp);mf.appendChild(sv);mf.appendChild(cn);inp.focus()};
+mf.appendChild(me);w.appendChild(mf);
+var uv;if(x.link&&/^https?:\/\//.test(x.link)){uv=el("a","",x.link);uv.href=x.link;uv.target="_blank";uv.rel="noopener noreferrer";uv.style.color="var(--accent)"}else{uv=el("div","","（未入力）")}
+w.appendChild(field("URL",uv));
+var mp=el("a","link","🗺 地図で見る");mp.href="https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(x.address||x.name);mp.target="_blank";mp.rel="noopener noreferrer";mp.style.marginTop="20px";w.appendChild(mp);
+ov.appendChild(w);
+}
 function render(){
+drawDetail();
 list.textContent="";
 var show=items.filter(function(x){return(x.done?"done":"want")===tab}).sort(function(a,b){return(b.at||0)-(a.at||0)});
 if(!show.length){list.appendChild(el("div","empty",tab==="want"?"まだ何もありません。行きたいところを追加しよう":"まだ「行った」はありません"));return}
 show.forEach(function(x){
-var d=el("div","item"+(x.done?" done":""));
+var d=el("div","item"+(x.done?" done":""));d.style.cursor="pointer";d.onclick=function(e){if(e.target.closest("button,a,input,[data-noopen]"))return;openId=x.id;drawDetail()};
 var ph;if(x.photo){ph=el("img","thumb");ph.src=x.photo;ph.alt=x.name}else{ph=el("div","thumb","📍")}
-ph.onclick=function(){editing=x;photo2.click()};
+
 var t=el("div","t");t.appendChild(el("div","name",x.name));
-var mm=el("div","memo",x.memo||"✏️ メモを追加");mm.style.cursor="pointer";if(!x.memo)mm.style.opacity=".6";
+var mm=el("div","memo",x.memo||"✏️ メモを追加");mm.style.cursor="pointer";mm.setAttribute("data-noopen","1");if(!x.memo)mm.style.opacity=".6";
 mm.onclick=function(){
 var inp=el("input");inp.value=x.memo||"";inp.maxLength=200;inp.placeholder="メモ";
 var sv=el("button","go","保存");sv.style.marginTop="6px";
